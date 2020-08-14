@@ -1,6 +1,9 @@
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <queue>
+#include <set>
 #include "httplib.h"
 
 class PatternMap {
@@ -241,6 +244,19 @@ public:
             printf("%s\n", m_state[i]);
         }
     }
+
+    void randomise() {
+        for (int i = 0; i < 15; ++i) {
+            for (int j = 0; j < 15; ++j) {
+                int num = rand() % 3;
+                char ch;
+                if (num == 0) ch = 's';
+                else if (num == 1) ch = 'b';
+                else ch = 'w';
+                m_state[i][j] = ch;
+            }
+        }
+    }
 };
 
 void inplace_invert(char s[]) {
@@ -287,7 +303,123 @@ public:
 
     ~Evaluator() {}
 
+    int get_str_pos(char s[], int si, int ds, int r, int c, int dr, int dc, int br, int bc, char block) {
+        char first_ch = m_game_state->m_state[r][c];
+        int first_si = si;
+        s[si] = first_ch;
+        r += dr; c += dc; si += ds;
+
+        bool b_mark = false, w_mark = false;
+        int space_pos = -1;
+        while (true) {
+            if (r == br || c == bc) { // out of bound (-1, 15)
+                if (s[si - ds] == 's') {
+                    return si - ds; 
+                }
+                s[si] = block;
+                return si;
+            }
+            char this_ch = m_game_state->m_state[r][c];
+            s[si] = this_ch;
+            if (this_ch == 's') {
+                if (si == first_si + ds && (first_ch == 's' || first_ch == block)) {
+                    return first_si;
+                }
+                if (space_pos == -1) {
+                    space_pos = si;
+                } else if (space_pos + ds == si) {
+                    return space_pos;
+                } else {
+                    return si;
+                }
+            } else if (this_ch == block) {
+                if (first_ch == block || s[si - ds] == 's') {
+                    return si - ds;
+                } else {
+                    return si;
+                }
+            }
+            // update
+            r += dr; c += dc; si += ds;
+        }
+        return -1;
+    }
+
     int get_score_at(const int row, const int col) {
+        int ret_score = 0;
+        char s[22];
+        int sh, st;
+        const int sm = 10;
+        
+        // Horizontal:
+        sh = get_str_pos(s, sm, -1, row, col, 0, -1, -1, -1, 'w');
+        st = get_str_pos(s, sm, 1, row, col, 0, 1, 15, 15, 'w');
+        if (st - sh >= 3) {
+            s[st + 1] = 0;
+            ret_score += m_acauto->find_sum(s + sh, sm - sh);
+        }
+        // white
+        sh = get_str_pos(s, sm, -1, row, col, 0, -1, -1, -1, 'b');
+        st = get_str_pos(s, sm, 1, row, col, 0, 1, 15, 15, 'b');
+        if (st - sh >= 3) {
+            s[st + 1] = 0;
+            inplace_invert(s + sh);
+            ret_score -= m_acauto->find_sum(s + sh, sm - sh);
+        }
+
+        // Vertical:
+        sh = get_str_pos(s, sm, -1, row, col, -1, 0, -1, -1, 'w');
+        st = get_str_pos(s, sm, 1, row, col, 1, 0, 15, 15, 'w');
+        if (st - sh >= 3) {
+            s[st + 1] = 0;
+            ret_score += m_acauto->find_sum(s + sh, sm - sh);
+        }
+        // white
+        sh = get_str_pos(s, sm, -1, row, col, -1, 0, -1, -1, 'b');
+        st = get_str_pos(s, sm, 1, row, col, 1, 0, 15, 15, 'b');
+        if (st - sh >= 3) {
+            s[st + 1] = 0;
+            inplace_invert(s + sh);
+            ret_score -= m_acauto->find_sum(s + sh, sm - sh);
+        }
+
+        // Diagonal 1:
+        sh = get_str_pos(s, sm, -1, row, col, -1, -1, -1, -1, 'w');
+        st = get_str_pos(s, sm, 1, row, col, 1, 1, 15, 15, 'w');
+        if (st - sh >= 3) {
+            s[st + 1] = 0;
+            ret_score += m_acauto->find_sum(s + sh, sm - sh);
+        }
+        // white
+        sh = get_str_pos(s, sm, -1, row, col, -1, -1, -1, -1, 'b');
+        st = get_str_pos(s, sm, 1, row, col, 1, 1, 15, 15, 'b');
+        if (st - sh >= 3) {
+            s[st + 1] = 0;
+            inplace_invert(s + sh);
+            ret_score -= m_acauto->find_sum(s + sh, sm - sh);
+        }
+
+        // Diagonal 2:
+        sh = get_str_pos(s, sm, -1, row, col, 1, -1, 15, -1, 'w');
+        st = get_str_pos(s, sm, 1, row, col, -1, 1, -1, 15, 'w');
+        if (st - sh >= 3) {
+            s[st + 1] = 0;
+            ret_score += m_acauto->find_sum(s + sh, sm - sh);
+        }
+        // white
+        sh = get_str_pos(s, sm, -1, row, col, 1, -1, 15, -1, 'b');
+        st = get_str_pos(s, sm, 1, row, col, -1, 1, -1, 15, 'b');
+        if (st - sh >= 3) {
+            s[st + 1] = 0;
+            inplace_invert(s + sh);
+            ret_score -= m_acauto->find_sum(s + sh, sm - sh);
+        }
+
+        // FINALE
+        return ret_score;
+    }
+
+    int get_score_at_deprecated(const int row, const int col) {
         int ret_score = 0;
         int beg_row, end_row, beg_col, end_col;
         int sid;
@@ -381,6 +513,9 @@ public:
 
     void willSet(int row, int col) {
         int score = get_score_at(row, col);
+        int score2 = get_score_at_deprecated(row, col);
+        printf("score1 = %d\n", score);
+        printf("score2 = %d\n", score2);
         ++m_stack_head;
         m_stack_before[m_stack_head] = score;
         m_score -= score;
@@ -390,6 +525,9 @@ public:
 
     void didSet(int row, int col) {
         int score = get_score_at(row, col);
+        int score2 = get_score_at_deprecated(row, col);
+        printf("score1 = %d\n", score);
+        printf("score2 = %d\n", score2);
         m_stack_after[m_stack_head] = score;
         m_score += score;
 
@@ -405,16 +543,37 @@ public:
     }
 };
 
+int p_encode(int row, int col) {
+    return (row << 4) | col;
+}
+
+int p_decode_row(int num) {
+    return num >> 4;
+}
+
+int p_decode_col(int num) {
+    return num & 15;
+}
+
+class Proximity {
+public:
+
+};
+
 int main(int argc, char **argv) {
     using namespace httplib;
+
+    srand(time(NULL));
 
     printf("result: %d\n", g_acauto.find_sum("sbsbsbbbbsbbs", 9));
 
     GameState state("");
     Evaluator eval(state, g_acauto);
+    state.randomise();
+    state.m_state[7][7] = 's';
     state.print();
-    state.set(12, 4, 'b');
-    state.clear(12, 4);
+    state.set(7, 7, 'b');
+    state.clear(7, 7);
 
     return 0;
 }
