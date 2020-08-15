@@ -1198,10 +1198,13 @@ int main(int argc, char **argv)
             MinimaxMultithread minimax(s_repr.c_str(), depth);
             res_point = minimax.run();
         }
+        printf("result = ");
+        res_point.print();
         res.set_content(res_point.to_json(), "application/json");
     });
 
     svr.listen("localhost", 8080);
+    printf("Start server at port 8080\n");
 
     return 0;
 }
