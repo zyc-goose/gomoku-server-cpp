@@ -555,7 +555,7 @@ int p_decode_col(int num) {
     return num & 15;
 }
 
-class Proximity: GameStateObserver {
+class Proximity: public GameStateObserver {
 private:
     GameState *m_game_state;
 public:
@@ -618,36 +618,96 @@ public:
     }
 };
 
+class Monitor: public GameStateObserver {
+private:
+    GameState *m_game_state;
+
+    bool search_five(const int row, const int col, int dr, int dc, int sr, int sc, int tr, int tc) {
+        char this_ch = m_game_state->m_state[row][col];
+        if (this_ch == 's') return false;
+
+        int r, c, ps, pt;
+        for (r = row - dr, c = col - dc, ps = 0; 
+        r != sr && c != sc && m_game_state->m_state[r][c] == this_ch;
+        r -= dr, c -= dc, --ps);
+
+        for (r = row + dr, c = col + dc, pt = 0; 
+        r != tr && c != tc && m_game_state->m_state[r][c] == this_ch;
+        r += dr, c += dc, ++pt);
+
+        return pt - ps >= 4;
+    }
+
+    char search_single(int i, int j) {
+        char ch = m_game_state->m_state[i][j];
+        if (ch == 's') return 0;
+        if (search_five(i, j, 1, 0, -1, -1, 15, 15) ||
+            search_five(i, j, 0, 1, -1, -1, 15, 15) ||
+            search_five(i, j, 1, 1, -1, -1, 15, 15) ||
+            search_five(i, j, -1, 1, 15, -1, -1, 15)
+        ) return ch;
+        return 0;
+    }
+
+    char search_all() {
+        for (int i = 0; i < 15; ++i) {
+            for (int j = 0; j < 15; ++j) {
+                char ch = search_single(i, j);
+                if (ch != 0) {
+                    return ch;
+                }
+            }
+        }
+        return 0;
+    }
+
+    int count_occurrence(char ch) {
+        int ret = 0;
+        for (int i = 0; i < 15; ++i)
+            for (int j = 0; j < 15; ++j)
+                if (m_game_state->m_state[i][j] == ch)
+                    ++ret;
+        return ret;
+    }
+public:
+    char m_winner = 0;
+    bool m_black_next = false;
+
+    Monitor(GameState &game_state) {
+        m_game_state = &game_state;
+        m_game_state->add_observer(this);
+        m_winner = search_all();
+        m_black_next = (count_occurrence('b') == count_occurrence('w'));
+    }
+
+    void willSet(int row, int col) {}
+
+    void didSet(int row, int col) {
+        m_black_next = !m_black_next;
+        m_winner = search_single(row, col);
+    }
+
+    void didClear(int row, int col) {
+        m_black_next = !m_black_next;
+        m_winner = 0;
+    }
+};
+
 int main(int argc, char **argv) {
     using namespace httplib;
 
     srand(time(NULL));
 
-    printf("result: %d\n", g_acauto.find_sum("sbsbsbbbbsbbs", 9));
-
-    GameState state("");
-    Evaluator eval(state, g_acauto);
-    state.randomise();
-    state.m_state[0][7] = 's';
-    state.print();
-    state.set(0, 7, 'w');
-    state.clear(0, 7);
-
-    GameState state2("");
-    Evaluator eval2(state2, g_acauto);
-    Proximity prox2(state2);
-    state2.set(0, 0, 'b');
-    state2.set(1, 1, 'w');
-    state2.set(2, 1, 'b');
-    state2.clear(2, 1);
-    state2.clear(1, 1);
-    state2.clear(0, 0);
-    state2.set(0, 0, 'b');
-    state2.set(1, 1, 'w');
-    state2.set(2, 1, 'b');
-    state2.clear(2, 1);
-    state2.clear(1, 1);
-    state2.clear(0, 0);
+    GameState state("wswww");
+    Monitor monitor(state);
+    printf("black next: %d\n", monitor.m_black_next);
+    printf("winner: %c\n", monitor.m_winner);
+    state.set(0, 1, 'w');
+    printf("black next: %d\n", monitor.m_black_next);
+    printf("winner: %c\n", monitor.m_winner);
+    state.clear(0, 1);
+    printf("black next: %d\n", monitor.m_black_next);
+    printf("winner: %c\n", monitor.m_winner);
 
     return 0;
 }
