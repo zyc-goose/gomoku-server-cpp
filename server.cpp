@@ -691,10 +691,10 @@ public:
     int search_at(int row, int col)
     {
         int ret_count = 0;
-        int rs = g_max(0, row - 2);
-        int rt = g_min(14, row + 2);
-        int cs = g_max(0, col - 2);
-        int ct = g_min(14, col + 2);
+        int rs = g_max(0, row - 1);
+        int rt = g_min(14, row + 1);
+        int cs = g_max(0, col - 1);
+        int ct = g_min(14, col + 1);
         for (int i = rs; i <= rt; ++i)
         {
             for (int j = cs; j <= ct; ++j)
