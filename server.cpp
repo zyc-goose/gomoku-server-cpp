@@ -1097,7 +1097,8 @@ public:
                 best_points.push_back(elem);
             }
         }
-        auto ret_point = best_points[rand() % best_points.size()];
+        int idx = m_monitor->m_black_next ? best_points.size() - 1 : 0;
+        auto ret_point = best_points[idx];
         ret_point.m_node_count = node_count;
         return ret_point;
     }
@@ -1244,7 +1245,7 @@ public:
                 best_points.push_back(elem);
             }
         }
-        auto ret = best_points[rand() % best_points.size()];
+        auto ret = best_points[0];
         ret.m_node_count = node_count;
         return ret;
     }
