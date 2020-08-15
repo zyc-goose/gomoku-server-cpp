@@ -946,15 +946,7 @@ public:
 
     PointScoreCountTuple search(int depth, int alpha, int beta)
     {
-        if (m_monitor->m_winner == 'b')
-        {
-            return PointScoreCountTuple(-1, -1, g_inf, 1);
-        }
-        if (m_monitor->m_winner == 'w')
-        {
-            return PointScoreCountTuple(-1, -1, -g_inf, 1);
-        }
-        if (depth == m_target_depth)
+        if (m_monitor->m_winner != 0 || depth == m_target_depth)
         {
             return PointScoreCountTuple(-1, -1, m_evaluator->m_score, 1);
         }
@@ -1203,8 +1195,8 @@ int main(int argc, char **argv)
         res.set_content(res_point.to_json(), "application/json");
     });
 
-    svr.listen("localhost", 8080);
     printf("Start server at port 8080\n");
+    svr.listen("localhost", 8080);
 
     return 0;
 }
