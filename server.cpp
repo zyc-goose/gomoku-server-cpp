@@ -438,6 +438,60 @@ public:
         return -1;
     }
 
+    int get_score_at_absolute_desperation(const int row, const int col, char block_ch) {
+        int ret_score = 0;
+        char s[22];
+        int sh, st;
+        const int sm = 10;
+
+        // Horizontal:
+        sh = get_str_pos(s, sm, -1, row, col, 0, -1, -1, -1, block_ch);
+        st = get_str_pos(s, sm, 1, row, col, 0, 1, 15, 15, block_ch);
+        if (st - sh >= 3)
+        {
+            s[sm] = block_ch;
+            s[st + 1] = 0;
+            if (block_ch == 'b') { inplace_invert(s + sh); }
+            ret_score += m_acauto->find_sum(s + sh, sm - sh);
+        }
+
+        // Vertical:
+        sh = get_str_pos(s, sm, -1, row, col, -1, 0, -1, -1, block_ch);
+        st = get_str_pos(s, sm, 1, row, col, 1, 0, 15, 15, block_ch);
+        if (st - sh >= 3)
+        {
+            s[sm] = block_ch;
+            s[st + 1] = 0;
+            if (block_ch == 'b') { inplace_invert(s + sh); }
+            ret_score += m_acauto->find_sum(s + sh, sm - sh);
+        }
+
+        // Diagonal 1:
+        sh = get_str_pos(s, sm, -1, row, col, -1, -1, -1, -1, block_ch);
+        st = get_str_pos(s, sm, 1, row, col, 1, 1, 15, 15, block_ch);
+        if (st - sh >= 3)
+        {
+            s[sm] = block_ch;
+            s[st + 1] = 0;
+            if (block_ch == 'b') { inplace_invert(s + sh); }
+            ret_score += m_acauto->find_sum(s + sh, sm - sh);
+        }
+
+        // Diagonal 2:
+        sh = get_str_pos(s, sm, -1, row, col, 1, -1, 15, -1, block_ch);
+        st = get_str_pos(s, sm, 1, row, col, -1, 1, -1, 15, block_ch);
+        if (st - sh >= 3)
+        {
+            s[sm] = block_ch;
+            s[st + 1] = 0;
+            if (block_ch == 'b') { inplace_invert(s + sh); }
+            ret_score += m_acauto->find_sum(s + sh, sm - sh);
+        }
+
+        // FINALE
+        return ret_score;
+    }
+
     int get_score_at(const int row, const int col)
     {
         int ret_score = 0;
@@ -946,7 +1000,15 @@ public:
 
     PointScoreCountTuple search(int depth, int alpha, int beta)
     {
-        if (m_monitor->m_winner != 0 || depth == m_target_depth)
+        if (m_monitor->m_winner == 'b')
+        {
+            return PointScoreCountTuple(-1, -1, g_inf, 1);
+        }
+        if (m_monitor->m_winner == 'w')
+        {
+            return PointScoreCountTuple(-1, -1, -g_inf, 1);
+        }
+        if (depth == m_target_depth)
         {
             return PointScoreCountTuple(-1, -1, m_evaluator->m_score, 1);
         }
@@ -993,6 +1055,7 @@ public:
                 g_beta = g_min(g_beta, best_score);
                 g_mutex_beta.unlock();
             }
+
         }
         else
         { // minimiser
@@ -1141,6 +1204,14 @@ public:
                 best_score = g_max(best_score, elem.m_score);
                 node_count += elem.m_node_count;
             }
+            // absolute desperate for maximiser
+            if (best_score == -g_inf) {
+                for (auto &elem : m_results)
+                {
+                    elem.m_score += m_evaluator->get_score_at_absolute_desperation(elem.m_row, elem.m_col, 'b');
+                    best_score = g_max(best_score, elem.m_score);
+                }
+            }
         }
         else
         { // minimiser move
@@ -1149,6 +1220,14 @@ public:
             {
                 best_score = g_min(best_score, elem.m_score);
                 node_count += elem.m_node_count;
+            }
+            // absolute desperate for minimiser
+            if (best_score == g_inf) {
+                for (auto &elem : m_results)
+                {
+                    elem.m_score -= m_evaluator->get_score_at_absolute_desperation(elem.m_row, elem.m_col, 'w');
+                    best_score = g_min(best_score, elem.m_score);
+                }
             }
         }
         std::vector<PointScoreCountTuple> best_points;
