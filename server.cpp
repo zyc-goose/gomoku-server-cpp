@@ -4,6 +4,9 @@
 #include <ctime>
 #include <queue>
 #include <set>
+#include <algorithm>
+#include <thread>
+#include <mutex>
 #include "httplib.h"
 
 class PatternMap {
@@ -133,7 +136,6 @@ public:
     }
 
     int find_sum(const char s[], int pivot) {
-        printf("ACAuto::find_sum searching: %s\n", s);
         int ret_sum = 0;
         int s_len = strlen(s);
         int cur_node = m_root;
@@ -239,10 +241,14 @@ public:
         }
     }
 
+    std::mutex m_mutex_print;
+
     void print() {
+        m_mutex_print.lock();
         for (int i = 0; i < 15; ++i) {
             printf("%s\n", m_state[i]);
         }
+        m_mutex_print.unlock();
     }
 
     void randomise() {
@@ -290,14 +296,15 @@ private:
     int m_stack_head = -1;
     int m_stack_before[20];
     int m_stack_after[20];
-public:
+
     GameState *m_game_state;
     ACAuto *m_acauto;
+public:
     int m_score = 0;
 
-    Evaluator(GameState &game_state, ACAuto &acauto) {
-        m_game_state = &game_state;
-        m_acauto = &acauto;
+    Evaluator(GameState *game_state, ACAuto *acauto) {
+        m_game_state = game_state;
+        m_acauto = acauto;
         m_game_state->add_observer(this);
     }
 
@@ -513,33 +520,21 @@ public:
 
     void willSet(int row, int col) {
         int score = get_score_at(row, col);
-        int score2 = get_score_at_deprecated(row, col);
-        printf("score1 = %d\n", score);
-        printf("score2 = %d\n", score2);
         ++m_stack_head;
         m_stack_before[m_stack_head] = score;
         m_score -= score;
-        
-        printf("Evaluator::willSet score = %d\n", m_score);
     }
 
     void didSet(int row, int col) {
         int score = get_score_at(row, col);
-        int score2 = get_score_at_deprecated(row, col);
-        printf("score1 = %d\n", score);
-        printf("score2 = %d\n", score2);
         m_stack_after[m_stack_head] = score;
         m_score += score;
-
-        printf("Evaluator::didSet score = %d\n", m_score);
     }
 
     void didClear(int row, int col) {
         m_score -= m_stack_after[m_stack_head];
         m_score += m_stack_before[m_stack_head];
         --m_stack_head;
-
-        printf("Evaluator::didClear score = %d\n", m_score);
     }
 };
 
@@ -568,8 +563,8 @@ public:
 
     bool m_in_stack[15][15];
 
-    Proximity(GameState &game_state) {
-        m_game_state = &game_state;
+    Proximity(GameState *game_state) {
+        m_game_state = game_state;
         m_game_state->add_observer(this);
         memset(m_in_stack, 0, sizeof(m_in_stack));
         for (int i = 0; i < 15; ++i) {
@@ -605,7 +600,6 @@ public:
 
     void didSet(int row, int col) {
         m_track_count[++m_track_id] = search_at(row, col);
-        printf("stack top id = %d\n", m_stack_id);
     }
 
     void didClear(int row, int col) {
@@ -614,7 +608,6 @@ public:
             m_in_stack[m_stack_row[m_stack_id]][m_stack_col[m_stack_id]] = false;
             --m_stack_id;
         }
-        printf("stack top id = %d\n", m_stack_id);
     }
 };
 
@@ -671,25 +664,319 @@ private:
     }
 public:
     char m_winner = 0;
+    char m_next_ch = 0;
     bool m_black_next = false;
+    bool m_is_empty = false;
 
-    Monitor(GameState &game_state) {
-        m_game_state = &game_state;
+    Monitor(GameState *game_state) {
+        m_game_state = game_state;
         m_game_state->add_observer(this);
         m_winner = search_all();
         m_black_next = (count_occurrence('b') == count_occurrence('w'));
+        m_next_ch = m_black_next ? 'b' : 'w';
+        m_is_empty = (count_occurrence('s') == 225);
     }
 
     void willSet(int row, int col) {}
 
     void didSet(int row, int col) {
         m_black_next = !m_black_next;
+        m_next_ch = m_black_next ? 'b' : 'w';
         m_winner = search_single(row, col);
     }
 
     void didClear(int row, int col) {
         m_black_next = !m_black_next;
+        m_next_ch = m_black_next ? 'b' : 'w';
         m_winner = 0;
+    }
+};
+
+class PointScoreCountTuple {
+public:
+    int m_row = -1, m_col = -1, m_score = -1, m_node_count = 1;
+
+    PointScoreCountTuple() {}
+
+    PointScoreCountTuple(int row, int col, int score, int node_count) {
+        m_row = row;
+        m_col = col;
+        m_score = score;
+        m_node_count = node_count;
+    }
+    
+    bool operator < (const PointScoreCountTuple &rhs) const {
+        return m_score < rhs.m_score;
+    }
+
+    void print() {
+        printf("{row = %d, col = %d, score = %d, nodeCount=%d}\n", m_row, m_col, m_score, m_node_count);
+    }
+};
+
+class PointSorter {
+private:
+    GameState *m_game_state;
+    Proximity *m_proximity;
+    Evaluator *m_evaluator;
+    Monitor *m_monitor;
+public:
+    int m_points_top = -1;
+    PointScoreCountTuple m_points[225];
+
+    PointSorter(GameState *game_state, Proximity *proximity, Evaluator *evaluator, Monitor *monitor) {
+        m_game_state = game_state;
+        m_proximity = proximity;
+        m_evaluator = evaluator;
+        m_monitor = monitor;
+    }
+
+    void sort() {
+        // load 's' points
+        m_points_top = -1;
+        for (int i = 0; i <= m_proximity->m_stack_id; ++i) {
+            int row = m_proximity->m_stack_row[i];
+            int col = m_proximity->m_stack_col[i];
+            if (m_game_state->m_state[row][col] == 's') {
+                ++m_points_top;
+                m_points[m_points_top].m_row = row;
+                m_points[m_points_top].m_col = col;
+                m_game_state->set(row, col, m_monitor->m_next_ch);
+                m_points[m_points_top].m_score = m_evaluator->m_score;
+                m_game_state->clear(row, col);
+            }
+        }
+        std::sort(m_points, m_points + (m_points_top + 1));
+    }
+};
+
+const int g_inf = 100000000;
+
+std::mutex g_mutex_alpha, g_mutex_beta;
+int g_alpha = -g_inf, g_beta = g_inf;
+
+class MinimaxSingleThread {
+private:
+    ACAuto *m_acauto;
+    GameState *m_game_state;
+    Proximity *m_proximity;
+    Evaluator *m_evaluator;
+    Monitor *m_monitor;
+    PointSorter *m_point_sorter;
+
+    int m_target_depth;
+    
+public:
+    MinimaxSingleThread(const char repr[], int row, int col, int target_depth) {
+        // setup
+        m_acauto = &g_acauto;
+        m_game_state = new GameState(repr);
+        m_proximity = new Proximity(m_game_state);
+        m_evaluator = new Evaluator(m_game_state, m_acauto);
+        m_monitor = new Monitor(m_game_state);
+        m_point_sorter = new PointSorter(m_game_state, m_proximity, m_evaluator, m_monitor);
+        // first move
+        m_game_state->set(row, col, m_monitor->m_next_ch);
+        // depth
+        m_target_depth = target_depth;
+    }
+
+    ~MinimaxSingleThread() {
+        delete m_game_state;
+        delete m_proximity;
+        delete m_evaluator;
+        delete m_monitor;
+        delete m_point_sorter;
+    }
+
+    PointScoreCountTuple search(int depth, int alpha, int beta) {
+        if (m_monitor->m_winner == 'b') {
+            return PointScoreCountTuple(-1, -1, g_inf, 1);
+        }
+        if (m_monitor->m_winner == 'w') {
+            return PointScoreCountTuple(-1, -1, -g_inf, 1);
+        }
+        if (depth == m_target_depth) {
+            return PointScoreCountTuple(-1, -1, m_evaluator->m_score, 1);
+        }
+
+        m_point_sorter->sort(); // ascending order
+        int cand_size = m_point_sorter->m_points_top + 1;
+        std::vector<PointScoreCountTuple> cand_points, best_points;
+        for (int i = 0; i < cand_size; ++i) {
+            cand_points.push_back(m_point_sorter->m_points[i]);
+        }
+        int best_score;
+        int node_count = 1;
+        
+        if (m_monitor->m_black_next) { // maximiser
+            best_score = -g_inf;
+            for (int i = cand_size - 1; i >= 0; --i) {
+                auto point = cand_points[i];
+
+                m_game_state->set(point.m_row, point.m_col, 'b');
+                auto result = search(depth + 1, alpha, beta);
+                cand_points[i].m_score = result.m_score;
+                best_score = g_max(best_score, result.m_score);
+                node_count += result.m_node_count;
+
+                g_mutex_alpha.lock();
+                alpha = g_max(alpha, g_alpha, best_score);
+                g_mutex_alpha.unlock();
+
+                m_game_state->clear(point.m_row, point.m_col);
+
+                // alpha-beta pruning
+                if (alpha >= beta) { 
+                    break; 
+                }
+            }
+            // update global beta
+            if (depth == 0) {
+                g_mutex_beta.lock();
+                g_beta = g_min(g_beta, best_score);
+                g_mutex_beta.unlock();
+            }
+        } else { // minimiser
+            best_score = g_inf;
+            for (int i = 0; i < cand_size; ++i) {
+                auto point = cand_points[i];
+
+                m_game_state->set(point.m_row, point.m_col, 'w');
+                auto result = search(depth + 1, alpha, beta);
+                cand_points[i].m_score = result.m_score;
+                best_score = g_min(best_score, result.m_score);
+                node_count += result.m_node_count;
+
+                g_mutex_beta.lock();
+                beta = g_min(beta, g_beta, best_score);
+                g_mutex_beta.unlock();
+
+                m_game_state->clear(point.m_row, point.m_col);
+
+                // alpha-beta pruning
+                if (alpha >= beta) {
+                    break;
+                }
+            }
+            // update global alpha
+            if (depth == 0) {
+                g_mutex_alpha.lock();
+                g_alpha = g_max(g_alpha, best_score);
+                g_mutex_alpha.unlock();
+            }
+        }
+        for (auto &elem : cand_points) {
+            if (elem.m_score == best_score) {
+                best_points.push_back(elem);
+            }
+        }
+        auto ret_point = best_points[rand() % best_points.size()];
+        ret_point.m_node_count = node_count;
+        return ret_point;
+    }
+};
+
+class MinimaxMultithread {
+private:
+    ACAuto *m_acauto;
+    GameState *m_game_state;
+    Proximity *m_proximity;
+    Evaluator *m_evaluator;
+    Monitor *m_monitor;
+    PointSorter *m_point_sorter;
+
+    int m_target_depth;
+    std::vector<std::thread> m_threads;
+    std::vector<PointScoreCountTuple> m_results;
+    std::vector<MinimaxSingleThread*> m_minimax_list;
+
+public:
+
+    void thread_job(int tid) {
+        auto result = m_minimax_list[tid]->search(0, -g_inf, g_inf);
+        m_results[tid].m_score = result.m_score;
+        m_results[tid].m_node_count = result.m_node_count;
+    }
+
+    MinimaxMultithread(const char repr[], int target_depth) {
+        // setup
+        m_acauto = &g_acauto;
+        m_game_state = new GameState(repr);
+        m_proximity = new Proximity(m_game_state);
+        m_evaluator = new Evaluator(m_game_state, m_acauto);
+        m_monitor = new Monitor(m_game_state);
+        m_point_sorter = new PointSorter(m_game_state, m_proximity, m_evaluator, m_monitor);
+        // depth
+        m_target_depth = target_depth;
+        
+        // make threads
+        m_point_sorter->sort();
+        std::vector<PointScoreCountTuple> cand_points;
+        if (m_monitor->m_black_next) {
+            for (int i = m_point_sorter->m_points_top; i >= 0; --i) {
+                cand_points.push_back(m_point_sorter->m_points[i]);
+            }
+        } else {
+            for (int i = 0; i <= m_point_sorter->m_points_top; ++i) {
+                cand_points.push_back(m_point_sorter->m_points[i]);
+            }
+        }
+        for (auto &elem : cand_points) {
+            int row = elem.m_row, col = elem.m_col;
+            auto minimax = new MinimaxSingleThread(repr, row, col, target_depth - 1);
+            m_minimax_list.push_back(minimax);
+            m_results.push_back(elem);
+        }
+        for (int tid = 0; tid < cand_points.size(); ++tid) {
+            m_threads.push_back(std::thread(&MinimaxMultithread::thread_job, std::ref(*this), tid));
+        }
+    }
+
+    ~MinimaxMultithread() {
+        delete m_game_state;
+        delete m_proximity;
+        delete m_evaluator;
+        delete m_monitor;
+        delete m_point_sorter;
+        for (auto ptr : m_minimax_list) {
+            delete ptr;
+        }
+    }
+
+    PointScoreCountTuple run() {
+        if (m_monitor->m_is_empty) {
+            return PointScoreCountTuple(7, 7, 0, 0);
+        }
+        if (m_monitor->m_winner != 0) {
+            return PointScoreCountTuple(-1, -1, 0, 0);
+        }
+        // threads
+        for (auto &t : m_threads) t.join();
+        // finish
+        int best_score, node_count = 0;
+        if (m_monitor->m_black_next) { // maximiser move
+            best_score = -g_inf;
+            for (auto &elem : m_results) {
+                best_score = g_max(best_score, elem.m_score);
+                node_count += elem.m_node_count;
+            }
+        } else { // minimiser move
+            best_score = g_inf;
+            for (auto &elem : m_results) {
+                best_score = g_min(best_score, elem.m_score);
+                node_count += elem.m_node_count;
+            }
+        }
+        std::vector<PointScoreCountTuple> best_points;
+        for (auto &elem : m_results) {
+            if (elem.m_score == best_score) {
+                best_points.push_back(elem);
+            }
+        }
+        auto ret = best_points[rand() % best_points.size()];
+        ret.m_node_count = node_count;
+        return ret;
     }
 };
 
@@ -698,16 +985,18 @@ int main(int argc, char **argv) {
 
     srand(time(NULL));
 
-    GameState state("wswww");
-    Monitor monitor(state);
-    printf("black next: %d\n", monitor.m_black_next);
-    printf("winner: %c\n", monitor.m_winner);
-    state.set(0, 1, 'w');
-    printf("black next: %d\n", monitor.m_black_next);
-    printf("winner: %c\n", monitor.m_winner);
-    state.clear(0, 1);
-    printf("black next: %d\n", monitor.m_black_next);
-    printf("winner: %c\n", monitor.m_winner);
+    int depth;
+    printf("search depth: ");
+    scanf("%d", &depth);
+
+    char repr[50];
+    printf("repr: ");
+    while (scanf("%s", repr) != -1) {
+        MinimaxMultithread job(repr, depth);
+        auto result = job.run();
+        result.print();
+        printf("repr: ");
+    }
 
     return 0;
 }
