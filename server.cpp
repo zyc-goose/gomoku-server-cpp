@@ -555,9 +555,67 @@ int p_decode_col(int num) {
     return num & 15;
 }
 
-class Proximity {
+class Proximity: GameStateObserver {
+private:
+    GameState *m_game_state;
 public:
+    int m_stack_id = -1;
+    int m_stack_row[225];
+    int m_stack_col[225];
 
+    int m_track_id = -1;
+    int m_track_count[20];
+
+    bool m_in_stack[15][15];
+
+    Proximity(GameState &game_state) {
+        m_game_state = &game_state;
+        m_game_state->add_observer(this);
+        memset(m_in_stack, 0, sizeof(m_in_stack));
+        for (int i = 0; i < 15; ++i) {
+            for (int j = 0; j < 15; ++j) {
+                if (m_game_state->m_state[i][j] != 's') {
+                    search_at(i, j);
+                }
+            }
+        }
+    }
+
+    int search_at(int row, int col) {
+        int ret_count = 0;
+        int rs = g_max(0, row - 2);
+        int rt = g_min(14, row + 2);
+        int cs = g_max(0, col - 2);
+        int ct = g_min(14, col + 2);
+        for (int i = rs; i <= rt; ++i) {
+            for (int j = cs; j <= ct; ++j) {
+                if (m_game_state->m_state[i][j] == 's' && !m_in_stack[i][j]) {
+                    ++ret_count;
+                    ++m_stack_id;
+                    m_stack_row[m_stack_id] = i;
+                    m_stack_col[m_stack_id] = j;
+                    m_in_stack[i][j] = true;
+                }
+            }
+        }
+        return ret_count;
+    }
+
+    void willSet(int row, int col) {}
+
+    void didSet(int row, int col) {
+        m_track_count[++m_track_id] = search_at(row, col);
+        printf("stack top id = %d\n", m_stack_id);
+    }
+
+    void didClear(int row, int col) {
+        int count = m_track_count[m_track_id--];
+        for (int i = 0; i < count; ++i) {
+            m_in_stack[m_stack_row[m_stack_id]][m_stack_col[m_stack_id]] = false;
+            --m_stack_id;
+        }
+        printf("stack top id = %d\n", m_stack_id);
+    }
 };
 
 int main(int argc, char **argv) {
@@ -570,10 +628,26 @@ int main(int argc, char **argv) {
     GameState state("");
     Evaluator eval(state, g_acauto);
     state.randomise();
-    state.m_state[7][7] = 's';
+    state.m_state[0][7] = 's';
     state.print();
-    state.set(7, 7, 'b');
-    state.clear(7, 7);
+    state.set(0, 7, 'w');
+    state.clear(0, 7);
+
+    GameState state2("");
+    Evaluator eval2(state2, g_acauto);
+    Proximity prox2(state2);
+    state2.set(0, 0, 'b');
+    state2.set(1, 1, 'w');
+    state2.set(2, 1, 'b');
+    state2.clear(2, 1);
+    state2.clear(1, 1);
+    state2.clear(0, 0);
+    state2.set(0, 0, 'b');
+    state2.set(1, 1, 'w');
+    state2.set(2, 1, 'b');
+    state2.clear(2, 1);
+    state2.clear(1, 1);
+    state2.clear(0, 0);
 
     return 0;
 }
