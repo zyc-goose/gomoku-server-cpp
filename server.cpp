@@ -1208,7 +1208,10 @@ public:
             if (best_score == -g_inf) {
                 for (auto &elem : m_results)
                 {
-                    elem.m_score += m_evaluator->get_score_at_absolute_desperation(elem.m_row, elem.m_col, 'b');
+                    int value = m_evaluator->get_score_at_absolute_desperation(elem.m_row, elem.m_col, 'b');
+                    printf("value = %d\n", value);
+                    elem.m_score += value;
+                    printf("elem.score = %d\n", elem.m_score);
                     best_score = g_max(best_score, elem.m_score);
                 }
             }
@@ -1225,7 +1228,10 @@ public:
             if (best_score == g_inf) {
                 for (auto &elem : m_results)
                 {
-                    elem.m_score -= m_evaluator->get_score_at_absolute_desperation(elem.m_row, elem.m_col, 'w');
+                    int value = m_evaluator->get_score_at_absolute_desperation(elem.m_row, elem.m_col, 'w');
+                    printf("value = %d\n", value);
+                    elem.m_score -= value;
+                    printf("elem.score = %d\n", elem.m_score);
                     best_score = g_min(best_score, elem.m_score);
                 }
             }
